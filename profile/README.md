@@ -1,12 +1,91 @@
-## Hi there 👋
+# FAST-CARLET GitHub Organization
 
-<!--
+## Overview
 
-**Here are some ideas to get you started:**
+This repository contains the shared GitHub configuration for the **FAST-CARLET** organization.
 
-🙋‍♀️ A short introduction - what is your organization all about?
-🌈 Contribution guidelines - how can the community get involved?
-👩‍💻 Useful resources - where can the community find your docs? Is there anything else the community should know?
-🍿 Fun facts - what does your team eat for breakfast?
-🧙 Remember, you can do mighty things with the power of [Markdown](https://docs.github.com/github/writing-on-github/getting-started-with-writing-and-formatting-on-github/basic-writing-and-formatting-syntax)
--->
+It is used to centralize templates, standards and collaboration rules that are automatically applied across all repositories belonging to the organization.
+
+This repository does **not** contain application source code.
+
+---
+
+## Purpose
+
+The objective of this repository is to ensure a consistent development workflow across all FAST products by providing common GitHub resources.
+
+These resources include:
+
+* Pull Request templates
+* Issue templates
+* Contribution guidelines
+* Security policy
+* Shared GitHub configuration
+
+---
+
+## Development Workflow
+
+All FAST repositories follow the same development process.
+
+```text
+Developer Branch
+        │
+        ▼
+Pull Request
+        │
+        ▼
+PRE
+        │
+        ▼
+Validation
+        │
+        ▼
+Pull Request
+        │
+        ▼
+PRO
+        │
+        ▼
+Release
+        │
+        ▼
+GitHub Packages
+```
+
+Direct modifications to protected branches are not allowed.
+
+---
+
+## Repository Structure
+
+```text
+.github/
+│
+├── PULL_REQUEST_TEMPLATE.md
+├── ISSUE_TEMPLATE/
+├── CONTRIBUTING.md
+├── SECURITY.md
+└── ...
+```
+
+---
+
+## Applicable Repositories
+
+The shared configuration is intended to be used by repositories such as:
+
+* FASTRU
+* FASTFM
+* FASTFR
+* FASTIT
+
+and any future repositories created within the FAST-CARLET organization.
+
+---
+
+## Maintained by
+
+FAST Developers S.L.
+
+Copyright © FAST Developers S.L.
