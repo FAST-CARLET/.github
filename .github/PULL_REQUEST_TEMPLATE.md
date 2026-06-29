@@ -4,9 +4,9 @@ Describe brevemente el objetivo de este Pull Request.
 
 ---
 
-## Issue relacionada
+## Ticket relacionado
 
-Closes #
+Ticket #
 
 ---
 
