@@ -14,7 +14,6 @@ Ticket #
 
 - [ ] Nueva funcionalidad
 - [ ] Corrección de incidencia
-- [ ] Refactorización
 - [ ] Mejora de rendimiento
 - [ ] Actualización técnica
 - [ ] Documentación
@@ -32,4 +31,3 @@ Describe las pruebas realizadas.
 - [ ] Compila correctamente
 - [ ] Se han ejecutado las pruebas
 - [ ] Documentación actualizada
-- [ ] Revisado
