@@ -1,0 +1,297 @@
+name: Completar datos de Pull Request
+
+on:
+  pull_request:
+    types:
+      - opened
+      - reopened
+      - synchronize
+
+permissions:
+  contents: read
+  pull-requests: write
+
+jobs:
+  completar-pull-request:
+    name: Completar datos de la Pull Request
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Completar descripcion de la Pull Request
+        uses: actions/github-script@v7
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          script: |
+            const pullRequest = context.payload.pull_request;
+
+            if (!pullRequest) {
+              core.setFailed("No se ha encontrado la Pull Request.");
+              return;
+            }
+
+            const owner = context.repo.owner;
+            const repo = context.repo.repo;
+            const pullNumber = pullRequest.number;
+            const branchName = pullRequest.head.ref;
+            const title = pullRequest.title || "";
+            const currentBody = pullRequest.body || "";
+
+            core.info(`Pull Request: #${pullNumber}`);
+            core.info(`Rama origen: ${branchName}`);
+            core.info(`Titulo: ${title}`);
+
+            /*
+             * Nomenclatura esperada:
+             *
+             * feature/1234-descripcion
+             * hotfix/1234-descripcion
+             *
+             * Resultado:
+             *
+             * SK#1234
+             */
+
+            const branchPattern = /^(feature|hotfix)\/(\d+)-.+$/i;
+            const branchMatch = branchName.match(branchPattern);
+
+            const detectedTicket = branchMatch
+              ? `SK#${branchMatch[2]}`
+              : "SK#";
+
+            if (branchMatch) {
+              core.info(`Ticket detectado: ${detectedTicket}`);
+            } else {
+              core.warning(
+                `La rama "${branchName}" no cumple la nomenclatura esperada: feature/1234-descripcion o hotfix/1234-descripcion`
+              );
+            }
+
+            /*
+             * Obtener todos los archivos modificados en la Pull Request.
+             */
+
+            const changedFiles = await github.paginate(
+              github.rest.pulls.listFiles,
+              {
+                owner,
+                repo,
+                pull_number: pullNumber,
+                per_page: 100
+              }
+            );
+
+            core.info(
+              `Numero total de archivos modificados: ${changedFiles.length}`
+            );
+
+            /*
+             * Se considera que hay cambios de base de datos cuando:
+             *
+             * 1. El archivo está dentro de BD_FD.
+             * 2. El archivo está dentro de BD_MASTER.
+             * 3. El archivo está dentro de BD_SIS.
+             * 4. Tiene una extensión relacionada con base de datos.
+             * 5. Está dentro de una carpeta habitual de base de datos.
+             */
+
+            const databasePatterns = [
+              /(^|\/)BD_FD(\/|$)/i,
+              /(^|\/)BD_MASTER(\/|$)/i,
+              /(^|\/)BD_SIS(\/|$)/i,
+              /\.sql$/i,
+              /\.sqlproj$/i,
+              /\.dacpac$/i,
+              /\.dbmdl$/i,
+              /\.publish\.xml$/i,
+              /(^|\/)database(\/|$)/i,
+              /(^|\/)databases(\/|$)/i,
+              /(^|\/)base[-_ ]?datos(\/|$)/i,
+              /(^|\/)scripts?\/sql(\/|$)/i,
+              /(^|\/)stored procedures(\/|$)/i,
+              /(^|\/)stored[-_]?procedures?(\/|$)/i,
+              /(^|\/)procedures?(\/|$)/i,
+              /(^|\/)tables?(\/|$)/i,
+              /(^|\/)views?(\/|$)/i,
+              /(^|\/)functions?(\/|$)/i,
+              /(^|\/)schemas?(\/|$)/i
+            ];
+
+            const databaseFiles = changedFiles.filter(file =>
+              databasePatterns.some(pattern =>
+                pattern.test(file.filename)
+              )
+            );
+
+            const databaseChanged =
+              databaseFiles.length > 0 ? "Sí" : "No";
+
+            if (databaseFiles.length > 0) {
+              core.info(
+                `Se han detectado ${databaseFiles.length} archivos de base de datos:`
+              );
+
+              for (const file of databaseFiles) {
+                core.info(` - ${file.status}: ${file.filename}`);
+              }
+            } else {
+              core.info(
+                "No se han detectado cambios de base de datos."
+              );
+            }
+
+            /*
+             * Extraer una sección existente de la descripción.
+             */
+
+            function getSection(body, heading) {
+              const escapedHeading = heading.replace(
+                /[.*+?^${}()|[\]\\]/g,
+                "\\$&"
+              );
+
+              const expression = new RegExp(
+                `(?:^|\\n)##?\\s*${escapedHeading}\\s*\\n([\\s\\S]*?)(?=\\n##?\\s+|$)`,
+                "i"
+              );
+
+              const match = body.match(expression);
+
+              return match ? match[1].trim() : "";
+            }
+
+            /*
+             * Eliminar comentarios HTML para comprobar si existe
+             * contenido introducido manualmente.
+             */
+
+            function removeComments(content) {
+              return (content || "")
+                .replace(/<!--[\s\S]*?-->/g, "")
+                .trim();
+            }
+
+            function hasManualContent(content) {
+              return removeComments(content).length > 0;
+            }
+
+            /*
+             * Recuperar el contenido existente.
+             */
+
+            const currentSummary = getSection(
+              currentBody,
+              "Resumen"
+            );
+
+            const currentTicket = getSection(
+              currentBody,
+              "Ticket relacionado"
+            );
+
+            const currentTests = getSection(
+              currentBody,
+              "Pruebas realizadas"
+            );
+
+            /*
+             * Conservar el resumen manual.
+             * Si no existe, utilizar el título de la Pull Request.
+             */
+
+            let summary = title;
+
+            if (hasManualContent(currentSummary)) {
+              summary = removeComments(currentSummary);
+            }
+
+            /*
+             * Conservar el ticket si el desarrollador ya lo ha corregido
+             * o ha añadido más información.
+             */
+
+            let relatedTicket = detectedTicket;
+            const manualTicket = removeComments(currentTicket);
+
+            if (
+              hasManualContent(currentTicket) &&
+              manualTicket !== "SK#"
+            ) {
+              relatedTicket = manualTicket;
+            }
+
+            /*
+             * Conservar las pruebas introducidas manualmente.
+             */
+
+            let tests =
+              "<!-- Indica brevemente las pruebas realizadas -->";
+
+            if (hasManualContent(currentTests)) {
+              tests = removeComments(currentTests);
+            }
+
+            /*
+             * Guardar como comentario HTML los archivos de base de datos
+             * detectados. No se mostrarán visualmente en la descripción,
+             * pero podrán consultarse al editarla.
+             */
+
+            const databaseDetails =
+              databaseFiles.length > 0
+                ? [
+                    "",
+                    "<!-- Archivos de base de datos detectados automáticamente:",
+                    ...databaseFiles.map(
+                      file => `- ${file.status}: ${file.filename}`
+                    ),
+                    "-->"
+                  ].join("\n")
+                : "";
+
+            /*
+             * Construir la descripción completa.
+             */
+
+            const newBody = [
+              "## Resumen",
+              summary,
+              "",
+              "<!-- El resumen inicial se obtiene del título de la Pull Request. Puedes modificarlo. -->",
+              "",
+              "## Ticket relacionado",
+              relatedTicket,
+              "",
+              "<!-- Obtenido automáticamente del nombre de la rama. Puedes corregirlo o añadir más tickets. -->",
+              "",
+              "## Base de datos (Sí | No)",
+              databaseChanged,
+              databaseDetails,
+              "",
+              "<!-- Calculado automáticamente a partir de los archivos modificados en la Pull Request. -->",
+              "",
+              "## Pruebas realizadas",
+              tests
+            ].join("\n");
+
+            /*
+             * No actualizar cuando la descripción ya tiene
+             * exactamente el mismo contenido.
+             */
+
+            if (newBody.trim() === currentBody.trim()) {
+              core.info(
+                "La descripcion de la Pull Request ya esta actualizada."
+              );
+              return;
+            }
+
+            await github.rest.pulls.update({
+              owner,
+              repo,
+              pull_number: pullNumber,
+              body: newBody
+            });
+
+            core.info(
+              "Descripcion de la Pull Request actualizada correctamente."
+            );
