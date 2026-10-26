@@ -6,6 +6,10 @@ on:
       - PRE
       - PRO
 
+permissions:
+  contents: read
+  packages: read
+
 jobs:
   compilar:
     name: Compilar soluciones
@@ -21,8 +25,36 @@ jobs:
       - name: Configurar MSBuild
         uses: microsoft/setup-msbuild@v2
 
+      - name: Configurar GitHub Packages
+        shell: pwsh
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          $origen = "https://nuget.pkg.github.com/${{ github.repository_owner }}/index.json"
+
+          $origenExistente = nuget sources List |
+            Select-String -SimpleMatch "GitHubPackages"
+
+          if ($origenExistente) {
+            nuget sources Remove `
+              -Name "GitHubPackages" `
+              -NonInteractive
+          }
+
+          nuget sources Add `
+            -Name "GitHubPackages" `
+            -Source $origen `
+            -Username "${{ github.actor }}" `
+            -Password $env:GITHUB_TOKEN `
+            -StorePasswordInClearText `
+            -NonInteractive
+
+          if ($LASTEXITCODE -ne 0) {
+            Write-Error "No se ha podido configurar GitHub Packages."
+            exit $LASTEXITCODE
+          }
+
       - name: Buscar soluciones
-        id: buscar-soluciones
         shell: pwsh
         run: |
           $soluciones = Get-ChildItem -Path . -Filter *.sln -Recurse -File |
@@ -51,7 +83,8 @@ jobs:
 
           foreach ($solucion in $soluciones) {
             Write-Host "Restaurando: $($solucion.FullName)"
-            nuget restore $solucion.FullName
+
+            nuget restore $solucion.FullName -NonInteractive
 
             if ($LASTEXITCODE -ne 0) {
               Write-Error "Ha fallado la restauracion de $($solucion.Name)."
@@ -69,7 +102,11 @@ jobs:
 
           foreach ($solucion in $soluciones) {
             Write-Host "Compilando: $($solucion.FullName)"
-            msbuild $solucion.FullName /p:Configuration=Release /m /nologo
+
+            msbuild $solucion.FullName `
+              /p:Configuration=Release `
+              /m `
+              /nologo
 
             if ($LASTEXITCODE -ne 0) {
               Write-Error "Ha fallado la compilacion de $($solucion.Name)."
