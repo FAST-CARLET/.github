@@ -1,0 +1,78 @@
+name: Validar compilacion
+
+on:
+  pull_request:
+    branches:
+      - PRE
+      - PRO
+
+jobs:
+  compilar:
+    name: Compilar soluciones
+    runs-on: windows-latest
+
+    steps:
+      - name: Descargar repositorio
+        uses: actions/checkout@v4
+
+      - name: Configurar NuGet
+        uses: NuGet/setup-nuget@v2
+
+      - name: Configurar MSBuild
+        uses: microsoft/setup-msbuild@v2
+
+      - name: Buscar soluciones
+        id: buscar-soluciones
+        shell: pwsh
+        run: |
+          $soluciones = Get-ChildItem -Path . -Filter *.sln -Recurse -File |
+            Where-Object {
+              $_.FullName -notmatch '\\(bin|obj|packages|node_modules)\\'
+            }
+
+          if ($soluciones.Count -eq 0) {
+            Write-Error "No se ha encontrado ningun archivo .sln en el repositorio."
+            exit 1
+          }
+
+          Write-Host "Soluciones encontradas:"
+
+          foreach ($solucion in $soluciones) {
+            Write-Host " - $($solucion.FullName)"
+          }
+
+      - name: Restaurar paquetes NuGet
+        shell: pwsh
+        run: |
+          $soluciones = Get-ChildItem -Path . -Filter *.sln -Recurse -File |
+            Where-Object {
+              $_.FullName -notmatch '\\(bin|obj|packages|node_modules)\\'
+            }
+
+          foreach ($solucion in $soluciones) {
+            Write-Host "Restaurando: $($solucion.FullName)"
+            nuget restore $solucion.FullName
+
+            if ($LASTEXITCODE -ne 0) {
+              Write-Error "Ha fallado la restauracion de $($solucion.Name)."
+              exit $LASTEXITCODE
+            }
+          }
+
+      - name: Compilar soluciones
+        shell: pwsh
+        run: |
+          $soluciones = Get-ChildItem -Path . -Filter *.sln -Recurse -File |
+            Where-Object {
+              $_.FullName -notmatch '\\(bin|obj|packages|node_modules)\\'
+            }
+
+          foreach ($solucion in $soluciones) {
+            Write-Host "Compilando: $($solucion.FullName)"
+            msbuild $solucion.FullName /p:Configuration=Release /m /nologo
+
+            if ($LASTEXITCODE -ne 0) {
+              Write-Error "Ha fallado la compilacion de $($solucion.Name)."
+              exit $LASTEXITCODE
+            }
+          }
