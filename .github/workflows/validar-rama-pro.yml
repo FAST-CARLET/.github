@@ -8,6 +8,7 @@ permissions: {}
 jobs:
   validar-rama-pro:
     name: validar-rama-pro
+    if: ${{ true }}
     runs-on: ubuntu-latest
 
     steps:
