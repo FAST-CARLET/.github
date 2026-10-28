@@ -2,31 +2,37 @@ name: Validar rama hacia PRO
 
 on:
   pull_request:
+    branches:
+      - PRO
 
-permissions: {}
+permissions:
+  contents: read
 
 jobs:
   validar-rama-pro:
     name: validar-rama-pro
-    if: ${{ true }}
-    runs-on: ubuntu-latest
+    runs-on: windows-latest
 
     steps:
-      - name: Validar nombre de origen
-        shell: bash
+      - name: Validar nombre de rama
+        shell: pwsh
         env:
           RAMA_DESTINO: ${{ github.base_ref }}
           RAMA_ORIGEN: ${{ github.head_ref }}
         run: |
-          if [[ "$RAMA_DESTINO" != "PRO" ]]; then
+          Write-Host "Destino: $env:RAMA_DESTINO"
+          Write-Host "Origen: $env:RAMA_ORIGEN"
+
+          if ($env:RAMA_DESTINO -cne "PRO") {
+            Write-Host "La validacion solo se aplica a PRO."
             exit 0
-          fi
+          }
 
-          patron='^hotfix/[0-9]+-[a-z0-9]+(-[a-z0-9]+)*$'
+          $patron = '^hotfix/[0-9]+-[a-z0-9]+(-[a-z0-9]+)*$'
 
-          if [[ ! "$RAMA_ORIGEN" =~ $patron ]]; then
-            echo "::error::Para integrar en PRO, utiliza hotfix/<ticket>-<descripcion>. Ejemplo: hotfix/1234-corregir-login"
+          if ($env:RAMA_ORIGEN -cnotmatch $patron) {
+            Write-Host "::error::Para integrar en PRO, utiliza hotfix/<ticket>-<descripcion>. Ejemplo: hotfix/1234-corregir-login"
             exit 1
-          fi
+          }
 
-          echo "Nombre de rama válido."
+          Write-Host "Nombre de rama valido."
