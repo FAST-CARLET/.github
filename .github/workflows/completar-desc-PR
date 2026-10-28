@@ -2,19 +2,19 @@ name: Completar datos de Pull Request
 
 on:
   pull_request:
-    types:
-      - opened
-      - reopened
-      - synchronize
+    types: [opened, reopened, synchronize]
 
 permissions:
-  contents: read
   pull-requests: write
+
+concurrency:
+  group: completar-datos-pr-${{ github.repository }}-${{ github.event.pull_request.number }}
+  cancel-in-progress: false
 
 jobs:
   completar-pull-request:
     name: Completar datos de la Pull Request
-    runs-on: ubuntu-latest
+    runs-on: windows-latest
 
     steps:
       - name: Completar descripcion de la Pull Request
@@ -22,276 +22,153 @@ jobs:
         with:
           github-token: ${{ secrets.GITHUB_TOKEN }}
           script: |
-            const pullRequest = context.payload.pull_request;
-
-            if (!pullRequest) {
-              core.setFailed("No se ha encontrado la Pull Request.");
+            const eventPr = context.payload.pull_request;
+            if (!eventPr) {
+              core.setFailed('No se ha encontrado la Pull Request.');
               return;
             }
 
-            const owner = context.repo.owner;
-            const repo = context.repo.repo;
-            const pullNumber = pullRequest.number;
-            const branchName = pullRequest.head.ref;
-            const title = pullRequest.title || "";
-            const currentBody = pullRequest.body || "";
+            // Los tokens de forks y Dependabot pueden no permitir escritura.
+            // No se descarga ni ejecuta codigo de la Pull Request.
+            const { owner, repo } = context.repo;
+            const pull_number = eventPr.number;
+            const parameters = { owner, repo, pull_number };
 
-            core.info(`Pull Request: #${pullNumber}`);
-            core.info(`Rama origen: ${branchName}`);
-            core.info(`Titulo: ${title}`);
+            const { data: initialPr } = await github.rest.pulls.get(parameters);
+            if (initialPr.state !== 'open') return;
 
-            /*
-             * Nomenclatura esperada:
-             *
-             * feature/1234-descripcion
-             * hotfix/1234-descripcion
-             *
-             * Resultado:
-             *
-             * SK#1234
-             */
-
-            const branchPattern = /^(feature|hotfix)\/(\d+)-.+$/i;
-            const branchMatch = branchName.match(branchPattern);
-
-            const detectedTicket = branchMatch
-              ? `SK#${branchMatch[2]}`
-              : "SK#";
-
-            if (branchMatch) {
-              core.info(`Ticket detectado: ${detectedTicket}`);
-            } else {
-              core.warning(
-                `La rama "${branchName}" no cumple la nomenclatura esperada: feature/1234-descripcion o hotfix/1234-descripcion`
-              );
-            }
-
-            /*
-             * Obtener todos los archivos modificados en la Pull Request.
-             */
-
-            const changedFiles = await github.paginate(
-              github.rest.pulls.listFiles,
-              {
-                owner,
-                repo,
-                pull_number: pullNumber,
-                per_page: 100
-              }
-            );
-
-            core.info(
-              `Numero total de archivos modificados: ${changedFiles.length}`
-            );
-
-            /*
-             * Se considera que hay cambios de base de datos cuando:
-             *
-             * 1. El archivo está dentro de BD_FD.
-             * 2. El archivo está dentro de BD_MASTER.
-             * 3. El archivo está dentro de BD_SIS.
-             * 4. Tiene una extensión relacionada con base de datos.
-             * 5. Está dentro de una carpeta habitual de base de datos.
-             */
-
-            const databasePatterns = [
-              /(^|\/)BD_FD(\/|$)/i,
-              /(^|\/)BD_MASTER(\/|$)/i,
-              /(^|\/)BD_SIS(\/|$)/i,
-              /\.sql$/i,
-              /\.sqlproj$/i,
-              /\.dacpac$/i,
-              /\.dbmdl$/i,
-              /\.publish\.xml$/i,
-              /(^|\/)database(\/|$)/i,
-              /(^|\/)databases(\/|$)/i,
-              /(^|\/)base[-_ ]?datos(\/|$)/i,
-              /(^|\/)scripts?\/sql(\/|$)/i,
-              /(^|\/)stored procedures(\/|$)/i,
-              /(^|\/)stored[-_]?procedures?(\/|$)/i,
-              /(^|\/)procedures?(\/|$)/i,
-              /(^|\/)tables?(\/|$)/i,
-              /(^|\/)views?(\/|$)/i,
-              /(^|\/)functions?(\/|$)/i,
-              /(^|\/)schemas?(\/|$)/i
-            ];
-
-            const databaseFiles = changedFiles.filter(file =>
-              databasePatterns.some(pattern =>
-                pattern.test(file.filename)
-              )
-            );
-
-            const databaseChanged =
-              databaseFiles.length > 0 ? "Sí" : "No";
-
-            if (databaseFiles.length > 0) {
-              core.info(
-                `Se han detectado ${databaseFiles.length} archivos de base de datos:`
-              );
-
-              for (const file of databaseFiles) {
-                core.info(` - ${file.status}: ${file.filename}`);
-              }
-            } else {
-              core.info(
-                "No se han detectado cambios de base de datos."
-              );
-            }
-
-            /*
-             * Extraer una sección existente de la descripción.
-             */
-
-            function getSection(body, heading) {
-              const escapedHeading = heading.replace(
-                /[.*+?^${}()|[\]\\]/g,
-                "\\$&"
-              );
-
-              const expression = new RegExp(
-                `(?:^|\\n)##?\\s*${escapedHeading}\\s*\\n([\\s\\S]*?)(?=\\n##?\\s+|$)`,
-                "i"
-              );
-
-              const match = body.match(expression);
-
-              return match ? match[1].trim() : "";
-            }
-
-            /*
-             * Eliminar comentarios HTML para comprobar si existe
-             * contenido introducido manualmente.
-             */
-
-            function removeComments(content) {
-              return (content || "")
-                .replace(/<!--[\s\S]*?-->/g, "")
-                .trim();
-            }
-
-            function hasManualContent(content) {
-              return removeComments(content).length > 0;
-            }
-
-            /*
-             * Recuperar el contenido existente.
-             */
-
-            const currentSummary = getSection(
-              currentBody,
-              "Resumen"
-            );
-
-            const currentTicket = getSection(
-              currentBody,
-              "Ticket relacionado"
-            );
-
-            const currentTests = getSection(
-              currentBody,
-              "Pruebas realizadas"
-            );
-
-            /*
-             * Conservar el resumen manual.
-             * Si no existe, utilizar el título de la Pull Request.
-             */
-
-            let summary = title;
-
-            if (hasManualContent(currentSummary)) {
-              summary = removeComments(currentSummary);
-            }
-
-            /*
-             * Conservar el ticket si el desarrollador ya lo ha corregido
-             * o ha añadido más información.
-             */
-
-            let relatedTicket = detectedTicket;
-            const manualTicket = removeComments(currentTicket);
-
-            if (
-              hasManualContent(currentTicket) &&
-              manualTicket !== "SK#"
-            ) {
-              relatedTicket = manualTicket;
-            }
-
-            /*
-             * Conservar las pruebas introducidas manualmente.
-             */
-
-            let tests =
-              "<!-- Indica brevemente las pruebas realizadas -->";
-
-            if (hasManualContent(currentTests)) {
-              tests = removeComments(currentTests);
-            }
-
-            /*
-             * Guardar como comentario HTML los archivos de base de datos
-             * detectados. No se mostrarán visualmente en la descripción,
-             * pero podrán consultarse al editarla.
-             */
-
-            const databaseDetails =
-              databaseFiles.length > 0
-                ? [
-                    "",
-                    "<!-- Archivos de base de datos detectados automáticamente:",
-                    ...databaseFiles.map(
-                      file => `- ${file.status}: ${file.filename}`
-                    ),
-                    "-->"
-                  ].join("\n")
-                : "";
-
-            /*
-             * Construir la descripción completa.
-             */
-
-            const newBody = [
-              "## Resumen",
-              summary,
-              "",
-              "<!-- El resumen inicial se obtiene del título de la Pull Request. Puedes modificarlo. -->",
-              "",
-              "## Ticket relacionado",
-              relatedTicket,
-              "",
-              "<!-- Obtenido automáticamente del nombre de la rama. Puedes corregirlo o añadir más tickets. -->",
-              "",
-              "## Base de datos (Sí | No)",
-              databaseChanged,
-              databaseDetails,
-              "",
-              "<!-- Calculado automáticamente a partir de los archivos modificados en la Pull Request. -->",
-              "",
-              "## Pruebas realizadas",
-              tests
-            ].join("\n");
-
-            /*
-             * No actualizar cuando la descripción ya tiene
-             * exactamente el mismo contenido.
-             */
-
-            if (newBody.trim() === currentBody.trim()) {
-              core.info(
-                "La descripcion de la Pull Request ya esta actualizada."
-              );
-              return;
-            }
-
-            await github.rest.pulls.update({
-              owner,
-              repo,
-              pull_number: pullNumber,
-              body: newBody
+            const files = await github.paginate(github.rest.pulls.listFiles, {
+              ...parameters,
+              per_page: 100
             });
 
-            core.info(
-              "Descripcion de la Pull Request actualizada correctamente."
+            // La API lista como maximo 3000 archivos. Evitar un falso "No".
+            if (files.length < initialPr.changed_files) {
+              core.setFailed('La lista de archivos esta incompleta. No se modificara la descripcion.');
+              return;
+            }
+
+            const databasePatterns = [
+              /(^|\/)BD_(FD|MASTER|SIS)(\/|$)/i,
+              /\.(sql|sqlproj|dacpac|dbmdl)$/i,
+              /(^|\/)(database|databases|base[-_ ]?datos)(\/|$)/i,
+              /(^|\/)scripts?\/sql(\/|$)/i
+            ];
+            const isDatabase = path => Boolean(path) &&
+              databasePatterns.some(pattern => pattern.test(path));
+            const databaseFiles = files.filter(file =>
+              isDatabase(file.filename) || isDatabase(file.previous_filename)
             );
+
+            // Leer el contenido actual despues de consultar los archivos.
+            const { data: pr } = await github.rest.pulls.get(parameters);
+            if (pr.state !== 'open') return;
+            if (pr.head.sha !== initialPr.head.sha || pr.base.sha !== initialPr.base.sha) {
+              core.setFailed('La Pull Request ha cambiado durante el analisis. Vuelve a ejecutar el workflow.');
+              return;
+            }
+
+            const branchMatch = pr.head.ref.match(
+              /^(feature|hotfix)\/([0-9]+)-[a-z0-9]+(?:-[a-z0-9]+)*$/
+            );
+            const detectedTicket = branchMatch ? `SK#${branchMatch[2]}` : 'SK#';
+            if (!branchMatch) {
+              core.warning('No se ha podido extraer un ticket de la rama. La validacion del nombre corresponde al workflow de nomenclatura.');
+            }
+
+            const clean = text => text.replace(/<!--[\s\S]*?-->/g, '').trim();
+            const escapeRegex = text => text.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+
+            // Solo reconoce secciones de nivel 1 o 2; conserva el resto del documento.
+            function findSection(body, title) {
+              const heading = new RegExp(`^([#]{1,2})[ \\t]+${escapeRegex(title)}[ \\t]*\\r?$`, 'mi');
+              const match = heading.exec(body);
+              if (!match) return null;
+              const headingEnd = match.index + match[0].length;
+              const start = body[headingEnd] === '\n' ? headingEnd + 1 : headingEnd;
+              const following = body.slice(start);
+              const next = new RegExp(`^#{1,${match[1].length}}[ \\t]+`, 'm').exec(following);
+              const end = next ? start + next.index : body.length;
+              return { start, end, text: body.slice(start, end) };
+            }
+
+            function setSection(body, title, transform) {
+              const section = findSection(body, title);
+              if (section) {
+                const content = transform(section.text);
+                if (content === section.text) return body;
+                return body.slice(0, section.start) + content.trimEnd() + '\n\n' + body.slice(section.end);
+              }
+              return body + (body ? (body.endsWith('\n\n') ? '' : '\n\n') : '') +
+                `## ${title}\n${transform('').trimEnd()}\n`;
+            }
+
+            function updateBlock(text, label, generated) {
+              const start = `<!-- codex-pr:${label}:start -->`;
+              const end = `<!-- codex-pr:${label}:end -->`;
+              const block = `${start}\n${generated}\n${end}`;
+              const expression = new RegExp(`${escapeRegex(start)}[\\s\\S]*?${escapeRegex(end)}`);
+              if (expression.test(text)) return text.replace(expression, () => block);
+              return block + (text.trim() ? '\n\n' + text.trimEnd() : '');
+            }
+
+            const oldBody = pr.body || '';
+            let newBody = oldBody;
+
+            // Si no existe Resumen, el texto libre existente se mantiene donde estaba.
+            newBody = setSection(newBody, 'Resumen', existing =>
+              clean(existing) ? existing : pr.title + '\n'
+            );
+
+            newBody = setSection(newBody, 'Ticket relacionado', existing => {
+              if (existing.includes('<!-- codex-pr:ticket:start -->')) {
+                return updateBlock(existing, 'ticket', detectedTicket);
+              }
+              // Un ticket existente puede ser una correccion manual: conservarlo.
+              const manual = clean(existing);
+              if (manual && manual !== 'SK#') return existing;
+              return updateBlock('', 'ticket', detectedTicket);
+            });
+
+            const databaseValue = databaseFiles.length ? 'Sí' : 'No';
+            // Serializar rutas impide que nombres especiales cierren el comentario HTML.
+            const safeComment = value => JSON.stringify(value)
+              .replace(/</g, '\\u003c').replace(/>/g, '\\u003e');
+            const details = databaseFiles.length ? '\n\n<!-- Archivos de base de datos detectados automaticamente:\n' +
+              databaseFiles.map(file => `- ${file.status}: ${safeComment(file.filename)}` +
+                (file.previous_filename ? ` (antes: ${safeComment(file.previous_filename)})` : '')).join('\n') +
+              '\n-->' : '';
+
+            newBody = setSection(newBody, 'Base de datos (Sí | No)', existing => {
+              if (existing.includes('<!-- codex-pr:database:start -->')) {
+                return updateBlock(existing, 'database', databaseValue + details);
+              }
+              // Migracion del workflow anterior: retirar solo valores y comentarios automaticos conocidos.
+              const notes = existing
+                .replace(/<!-- Archivos de base de datos detectados autom[áa]ticamente:[\s\S]*?-->/gi, '')
+                .replace(/<!-- Calculado autom[áa]ticamente a partir de los archivos modificados en la Pull Request\. -->/gi, '')
+                .replace(/^\s*(?:Sí|Si|No)[ \t]*(?:\r?\n|$)/i, '');
+              return updateBlock(notes, 'database', databaseValue + details);
+            });
+
+            newBody = setSection(newBody, 'Pruebas realizadas', existing =>
+              existing.trim() ? existing : '<!-- Indica brevemente las pruebas realizadas -->\n'
+            );
+
+            if (newBody === oldBody) {
+              core.info('La descripcion ya esta actualizada.');
+              return;
+            }
+
+            // Detectar ediciones manuales mientras se preparaba la actualizacion.
+            const { data: latestPr } = await github.rest.pulls.get(parameters);
+            if (latestPr.state !== 'open') return;
+            if ((latestPr.body || '') !== oldBody || latestPr.title !== pr.title ||
+                latestPr.head.ref !== pr.head.ref || latestPr.head.sha !== pr.head.sha ||
+                latestPr.base.sha !== pr.base.sha) {
+              core.setFailed('La Pull Request se ha editado durante la ejecucion. Vuelve a ejecutar el workflow para conservar esos cambios.');
+              return;
+            }
+
+            await github.rest.pulls.update({ ...parameters, body: newBody });
+            core.info(`Descripcion actualizada. Archivos de base de datos: ${databaseFiles.length}.`);
