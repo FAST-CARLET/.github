@@ -1,4 +1,4 @@
-name: Validar rama hacia PRO
+name: Validar nomenclatura de rama HotFix
 
 on:
   pull_request:
