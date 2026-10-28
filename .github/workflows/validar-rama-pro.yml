@@ -1,0 +1,31 @@
+name: Validar rama hacia PRO
+
+on:
+  pull_request:
+
+permissions: {}
+
+jobs:
+  validar-rama-pro:
+    name: validar-rama-pro
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Validar nombre de origen
+        shell: bash
+        env:
+          RAMA_DESTINO: ${{ github.base_ref }}
+          RAMA_ORIGEN: ${{ github.head_ref }}
+        run: |
+          if [[ "$RAMA_DESTINO" != "PRO" ]]; then
+            exit 0
+          fi
+
+          patron='^hotfix/[0-9]+-[a-z0-9]+(-[a-z0-9]+)*$'
+
+          if [[ ! "$RAMA_ORIGEN" =~ $patron ]]; then
+            echo "::error::Para integrar en PRO, utiliza hotfix/<ticket>-<descripcion>. Ejemplo: hotfix/1234-corregir-login"
+            exit 1
+          fi
+
+          echo "Nombre de rama válido."
