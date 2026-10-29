@@ -1,0 +1,47 @@
+name: Validar rama de origen
+
+on:
+  pull_request:
+    branches:
+      - PRE
+      - PRO
+
+permissions:
+  contents: read
+
+jobs:
+  validar-rama-pro:
+    name: validar-rama-pro
+    runs-on: windows-latest
+
+    steps:
+      - name: Validar nombre de rama
+        shell: pwsh
+        env:
+          RAMA_DESTINO: ${{ github.base_ref }}
+          RAMA_ORIGEN: ${{ github.head_ref }}
+        run: |
+          switch -CaseSensitive ($env:RAMA_DESTINO) {
+            "PRO" {
+              $prefijo = "hotfix"
+            }
+            "PRE" {
+              $prefijo = "feature"
+            }
+            default {
+              Write-Host "No hay una regla para esta rama de destino."
+              exit 0
+            }
+          }
+
+          $patron = "^$prefijo/[0-9]+-[a-z0-9]+(-[a-z0-9]+)*$"
+
+          Write-Host "Destino: $env:RAMA_DESTINO"
+          Write-Host "Origen: $env:RAMA_ORIGEN"
+
+          if ($env:RAMA_ORIGEN -cnotmatch $patron) {
+            Write-Host "::error::Para integrar en $env:RAMA_DESTINO, utiliza $prefijo/<ticket>-<descripcion>. Ejemplo: $prefijo/1234-corregir-login"
+            exit 1
+          }
+
+          Write-Host "Nombre de rama valido."
