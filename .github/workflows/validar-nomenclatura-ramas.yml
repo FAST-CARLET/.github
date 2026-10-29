@@ -34,13 +34,17 @@ jobs:
             }
           }
 
-          $patron = "^$prefijo/[0-9]+-[a-z0-9]+(-[a-z0-9]+)*$"
+          $patronTicket = "^$prefijo/[0-9]+-[a-z0-9]+(-[a-z0-9]+)*$"
+          $patronRelease = '^release/.+$'
 
           Write-Host "Destino: $env:RAMA_DESTINO"
           Write-Host "Origen: $env:RAMA_ORIGEN"
 
-          if ($env:RAMA_ORIGEN -cnotmatch $patron) {
-            Write-Host "::error::Para integrar en $env:RAMA_DESTINO, utiliza $prefijo/<ticket>-<descripcion>. Ejemplo: $prefijo/1234-corregir-login"
+          $ticketValido = $env:RAMA_ORIGEN -cmatch $patronTicket
+          $releaseValida = $env:RAMA_ORIGEN -cmatch $patronRelease
+
+          if (-not ($ticketValido -or $releaseValida)) {
+            Write-Host "::error::Para integrar en $env:RAMA_DESTINO, utiliza $prefijo/<ticket>-<descripcion> o release/<nombre>. Ejemplos: $prefijo/1234-corregir-login o release/version-octubre"
             exit 1
           }
 
