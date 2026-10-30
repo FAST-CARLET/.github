@@ -1,4 +1,4 @@
-name: Validar rama de origen
+name: Validar nomenclatura rama
 
 on:
   pull_request:
@@ -34,7 +34,7 @@ jobs:
             }
           }
 
-          $patronTicket = "^$prefijo/[0-9]+-[a-z0-9]+(-[a-z0-9]+)*$"
+          $patronTicket = "^$prefijo/[0-9]+-.+$"
           $patronRelease = '^release/.+$'
 
           Write-Host "Destino: $env:RAMA_DESTINO"
