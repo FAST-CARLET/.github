@@ -42,9 +42,10 @@ jobs:
 
           $ticketValido = $env:RAMA_ORIGEN -cmatch $patronTicket
           $releaseValida = $env:RAMA_ORIGEN -cmatch $patronRelease
+          $promocionPrePro = ($env:RAMA_DESTINO -ceq "PRO") -and ($env:RAMA_ORIGEN -ceq "PRE")
 
-          if (-not ($ticketValido -or $releaseValida)) {
-            Write-Host "::error::Para integrar en $env:RAMA_DESTINO, utiliza $prefijo/<ticket>-<descripcion> o release/<nombre>. Ejemplos: $prefijo/1234-corregir-login o release/version-octubre"
+          if (-not ($ticketValido -or $releaseValida -or $promocionPrePro)) {
+            Write-Host "::error::Para integrar en $env:RAMA_DESTINO, utiliza $prefijo/<ticket>-<descripcion> o release/<nombre>. Tambien se permite PRE hacia PRO."
             exit 1
           }
 
